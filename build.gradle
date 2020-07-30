@@ -1,0 +1,73 @@
+plugins {
+    id 'com.bmuschko.docker-remote-api' version '6.6.0'
+}
+
+task 'clean', type: Delete, {
+    delete buildDir
+}
+
+import com.bmuschko.gradle.docker.tasks.image.*
+import com.bmuschko.gradle.docker.tasks.container.*
+
+task 'dockerfile', type: Dockerfile, {
+    destFile = file("$buildDir/foo/Dockerfile")
+
+    from 'hello-world'
+}
+
+// People probably like the fact that the output of this looks similar to docker CLI output.
+// Maybe add a property for making this silent?
+task 'build', type: DockerBuildImage, {
+    inputDir = dockerfile.destDir
+    dockerFile = dockerfile.destFile
+}
+build.dependsOn dockerfile
+
+// logs 'Created container with ID ...' at QUIET level.
+// Maybe lower it to INFO?
+task 'create', type: DockerCreateContainer, {
+    imageId = build.imageId
+
+    hostConfig.autoRemove = true
+}
+create.dependsOn build
+
+// logs 'Starter container with ID ...' at QUIET level.
+// Maybe lower it to INFO?
+task 'start', type: DockerStartContainer, {
+    containerId = create.containerId
+}
+start.dependsOn create
+
+// logs 'Logs for container with ID ...' at QUIET level.
+// Maybe lower it to INFO?
+task 'logs', type: DockerLogsContainer, {
+    containerId = start.containerId
+
+    sink = new DevNull() // in reality this is going to a file
+    follow = true
+}
+logs.dependsOn start
+
+// logs 'Waiting for container with ID ...\nContainer exited with code X' at QUIET level.
+// Maybe lower them to INFO?
+task 'wait', type: DockerWaitContainer, {
+    containerId = logs.containerId
+
+    onComplete {
+	if(wait.exitCode != 0) {
+	    // in reality, show the logs as error message
+	    throw new TaskExecutionException(wait, new RuntimeException("failed"))
+	}
+    }
+}
+wait.dependsOn logs
+
+class DevNull extends Writer {
+    @Override
+    public void write(final char[] cbuf, final int off, final int len) throws IOException {}
+    @Override
+    public void flush() throws IOException {}
+    @Override
+    public void close() throws IOException {}
+}
